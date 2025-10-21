@@ -96,7 +96,6 @@ def main():
             lr = optimizer.param_groups[0]['lr']
             optimizer.zero_grad()
             output = model(images)
-            print(output.shape, labels.shape)
             loss = criterion_mrae(output, labels)
             loss.backward()
             optimizer.step()
