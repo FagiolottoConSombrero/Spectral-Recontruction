@@ -96,6 +96,7 @@ def main():
             lr = optimizer.param_groups[0]['lr']
             optimizer.zero_grad()
             output = model(images)
+            print(output.shape, labels.shape)
             loss = criterion_mrae(output, labels)
             loss.backward()
             optimizer.step()
@@ -134,7 +135,6 @@ def validate(val_loader, model):
         with torch.no_grad():
             # compute output
             output = model(input)
-            print(output.shape, target.shape)
             loss_mrae = criterion_mrae(output, target)
             loss_rmse = criterion_rmse(output, target)
             loss_psnr = criterion_psnr(output, target)
