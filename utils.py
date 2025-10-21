@@ -77,14 +77,17 @@ class Loss_MRAE_custom(nn.Module):
 
 class Loss_RMSE(nn.Module):
     def __init__(self):
-        super(Loss_RMSE, self).__init__()
+        super().__init__()
 
     def forward(self, outputs, label):
         assert outputs.shape == label.shape
-        error = outputs-label
-        sqrt_error = torch.pow(error,2)
-        rmse = torch.sqrt(torch.mean(sqrt_error.view(-1)))
+        outputs = outputs.float()
+        label   = label.float()
+        error = outputs - label
+        mse = torch.mean(error ** 2)
+        rmse = torch.sqrt(mse)
         return rmse
+
 
 class Loss_PSNR(nn.Module):
     def __init__(self):
