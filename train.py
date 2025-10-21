@@ -134,6 +134,7 @@ def validate(val_loader, model):
         with torch.no_grad():
             # compute output
             output = model(input)
+            print(output.shape, target.shape)
             loss_mrae = criterion_mrae(output, target)
             loss_rmse = criterion_rmse(output, target)
             loss_psnr = criterion_psnr(output, target)
