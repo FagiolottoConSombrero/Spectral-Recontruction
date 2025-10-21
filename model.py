@@ -186,7 +186,7 @@ class MSAB(nn.Module):
         return out
 
 class MST(nn.Module):
-    def __init__(self, in_dim=121, out_dim=121, dim=61, stage=2, num_blocks=[2,4,4]):
+    def __init__(self, in_dim=121, out_dim=121, dim=121, stage=2, num_blocks=[2,4,4]):
         super(MST, self).__init__()
         self.dim = dim
         self.stage = stage
@@ -268,7 +268,7 @@ class MST(nn.Module):
         return out
 
 class MST_Plus_Plus(nn.Module):
-    def __init__(self, in_channels=4, out_channels=121, n_feat=61, stage=3):
+    def __init__(self, in_channels=4, out_channels=121, n_feat=121, stage=3):
         super(MST_Plus_Plus, self).__init__()
         self.stage = stage
         self.conv_in = nn.Conv2d(in_channels, n_feat, kernel_size=3, padding=(3 - 1) // 2,bias=False)
