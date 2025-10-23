@@ -5,7 +5,7 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 import os
-from model import MST_Plus_Plus
+from model import JointDualFilterMST
 from utils import AverageMeter, initialize_logger, save_checkpoint, time2file_name, \
                   Loss_MRAE, Loss_RMSE, Loss_PSNR, make_loaders
 import datetime
@@ -43,7 +43,7 @@ criterion_psnr = Loss_PSNR()
 
 # model
 pretrained_model_path = opt.pretrained_model_path
-model = MST_Plus_Plus().cuda()
+model = JointDualFilterMST().cuda()
 print('Parameters number is ', sum(param.numel() for param in model.parameters()))
 
 # output path
@@ -96,7 +96,10 @@ def main():
             lr = optimizer.param_groups[0]['lr']
             optimizer.zero_grad()
             output = model(images)
-            loss = criterion_mrae(output, labels)
+            data_loss = criterion_mrae(output, labels)
+            smooth_reg = model.smoothness_penalty()
+            lambda_smooth = 1e-3  # prova 1e-3 (range utile: 1e-4 ~ 5e-3)
+            loss = data_loss + lambda_smooth * smooth_reg
             loss.backward()
             optimizer.step()
             scheduler.step()
@@ -146,4 +149,3 @@ def validate(val_loader, model):
 
 if __name__ == '__main__':
     main()
-    print(torch.__version__)

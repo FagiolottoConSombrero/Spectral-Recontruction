@@ -6,6 +6,7 @@ import math
 import warnings
 from torch.nn.init import _calculate_fan_in_and_fan_out
 
+
 def _no_grad_trunc_normal_(tensor, mean, std, a, b):
     def norm_cdf(x):
         return (1. + math.erf(x / math.sqrt(2.))) / 2.
@@ -69,6 +70,7 @@ class GELU(nn.Module):
     def forward(self, x):
         return F.gelu(x)
 
+
 def conv(in_channels, out_channels, kernel_size, bias=False, padding = 1, stride = 1):
     return nn.Conv2d(
         in_channels, out_channels, kernel_size,
@@ -84,6 +86,7 @@ def shift_back(inputs,step=2):          # input [bs,28,256,310]  output [bs, 28,
         inputs[:,i,:,:out_col] = \
             inputs[:,i,:,int(step*i):int(step*i)+out_col]
     return inputs[:, :, :, :out_col]
+
 
 class MS_MSA(nn.Module):
     def __init__(
@@ -138,6 +141,7 @@ class MS_MSA(nn.Module):
 
         return out
 
+
 class FeedForward(nn.Module):
     def __init__(self, dim, mult=4):
         super().__init__()
@@ -156,6 +160,7 @@ class FeedForward(nn.Module):
         """
         out = self.net(x.permute(0, 3, 1, 2))
         return out.permute(0, 2, 3, 1)
+
 
 class MSAB(nn.Module):
     def __init__(
@@ -184,6 +189,7 @@ class MSAB(nn.Module):
             x = ff(x) + x
         out = x.permute(0, 3, 1, 2)
         return out
+
 
 class MST(nn.Module):
     def __init__(self, in_dim=121, out_dim=121, dim=121, stage=2, num_blocks=[2,4,4]):
@@ -267,6 +273,7 @@ class MST(nn.Module):
 
         return out
 
+
 class MST_Plus_Plus(nn.Module):
     def __init__(self, in_channels=4, out_channels=121, n_feat=121, stage=3):
         super(MST_Plus_Plus, self).__init__()
@@ -293,14 +300,91 @@ class MST_Plus_Plus(nn.Module):
         return h[:, :, :h_inp, :w_inp]
 
 
+def _softplus_inv(y, beta=1.0):
+    # inversa numerica di softplus, y>0
+    return torch.log(torch.expm1(beta * y)) / beta
 
 
+class PreFilter4ch(nn.Module):
+    """
+    Filtro depthwise per-canale 4->4, kernel k×k.
+    - Non negatività sempre attiva (softplus).
+    - Smoothness: TV-L2 sulle derivate finite (dx, dy).
+    - Inizializzazione identità (delta) per stabilità.
+    Opzionale: normalizzazione sum-to-one per canale.
+    """
+    def __init__(self, k=3, sum_to_one=False, eps=1e-6):
+        super().__init__()
+        assert k % 2 == 1, "Usa kernel dispari per avere il centro."
+        self.k = k
+        self.eps = eps
+        self.sum_to_one = sum_to_one
+        self.weight_param = nn.Parameter(torch.zeros(4, 1, k, k))  # 4 canali RGB-IR
+        self.register_buffer('identity', self._make_identity(), persistent=False)
+        self._init_as_identity()
+
+    def _make_identity(self):
+        w = torch.zeros(4, 1, self.k, self.k)
+        w[:, :, self.k//2, self.k//2] = 1.0
+        return w
+
+    def _init_as_identity(self):
+        with torch.no_grad():
+            target = self.identity.clamp_min(1e-6)
+            self.weight_param.copy_(_softplus_inv(target))
+
+    def kernel_nonneg(self):
+        # [4,1,k,k], >=0
+        w = F.softplus(self.weight_param) + self.eps
+        if self.sum_to_one:
+            # normalizza per canale (somma = 1)
+            s = w.sum(dim=(2,3), keepdim=True).clamp_min(self.eps)
+            w = w / s
+        return w
+
+    def smoothness_penalty(self):
+        # TV-L2
+        w = self.kernel_nonneg()
+        dx = w[:, :, 1:, :] - w[:, :, :-1, :]
+        dy = w[:, :, :, 1:] - w[:, :, :, :-1]
+        return (dx.pow(2).mean() + dy.pow(2).mean())
+
+    def forward(self, x):
+        # x: [B,4,H,W]
+        w = self.kernel_nonneg()
+        return F.conv2d(x, w, bias=None, stride=1, padding=self.k//2, groups=4)
 
 
+class JointDualFilterMST(nn.Module):
+    """
+    Ramo A: filtro A su input
+    Ramo B: filtro B su input copiato
+    Fusione: concat (8 canali)
+    MST++: in_channels = 8 (concat)
+    Tutto ottimizzato congiuntamente.
+    """
+    def __init__(self, k=3, sum_to_one=False):
+        super().__init__()
 
+        # due filtri indipendenti
+        self.filterA = PreFilter4ch(k=k, sum_to_one=sum_to_one)
+        self.filterB = PreFilter4ch(k=k, sum_to_one=sum_to_one)
 
+        mst_in_ch = 8
 
+        # MST++
+        self.mst = MST_Plus_Plus(in_channels=mst_in_ch)
 
+    def smoothness_penalty(self):
+        # somma delle penalità dei due filtri
+        return self.filterA.smoothness_penalty() + self.filterB.smoothness_penalty()
 
-
-
+    def forward(self, x4):
+        """
+        x4: [B,4,H,W]  (RGB-IR)
+        """
+        xa = self.filterA(x4)
+        xb = self.filterB(x4)
+        x_fused = torch.cat([xa, xb], dim=1)  # [B,8,H,W]
+        y = self.mst(x_fused)                 # [B,121,H,W]
+        return y
