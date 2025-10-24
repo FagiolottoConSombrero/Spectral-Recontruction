@@ -112,7 +112,7 @@ def main():
                 mrae_loss, rmse_loss, psnr_loss = validate(val_loader, model)
                 print(f'MRAE:{mrae_loss}, RMSE: {rmse_loss}, PNSR:{psnr_loss}')
                 # Save model
-                if torch.abs(mrae_loss - record_mrae_loss) < 0.01 or mrae_loss < record_mrae_loss or iteration % 5000 == 0:
+                if torch.abs(mrae_loss - record_mrae_loss) < 0.01 or mrae_loss < record_mrae_loss:
                     print(f'Saving to {opt.outf}')
                     save_checkpoint(opt.outf, (iteration // 1000), iteration, model, optimizer)
                     if mrae_loss < record_mrae_loss:
