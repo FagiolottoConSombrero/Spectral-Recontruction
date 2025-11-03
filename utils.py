@@ -52,6 +52,8 @@ class Loss_MRAE(nn.Module):
         super(Loss_MRAE, self).__init__()
 
     def forward(self, outputs, label):
+        print(outputs.shape)
+        print(label.shape)
         assert outputs.shape == label.shape
         error = torch.abs(outputs - label) / label
         mrae = error.reshape(-1).mean()
@@ -63,8 +65,6 @@ class Loss_MRAE_custom(nn.Module):
         super(Loss_MRAE_custom, self).__init__()
 
     def forward(self, outputs, label):
-        print(outputs.shape)
-        print(label.shape)
         assert outputs.shape == label.shape
         mask = label == 0
         if mask.any():
