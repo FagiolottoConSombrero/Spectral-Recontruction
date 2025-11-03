@@ -128,8 +128,6 @@ def make_loaders(root, sensor_root, rgb, ir, batch_size=8, num_workers=4, val_ra
     """
     root = Path(root)
     full = FlourFolderDataset(root=root,
-                              spectral_sens_csv=sensor_root,
-                              rgb=rgb, ir=ir,
                               hsi_channels_first=False,  # True se i tuoi HSI sono (L,H,W)
                               illuminant_mode="planck",  # alogena
                               illuminant_T=2856.0)
