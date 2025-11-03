@@ -308,12 +308,7 @@ def _softplus_inv(y, beta=1.0):
 class Filter(nn.Module):
     """
     Input:
-      X : [B, C, H, W]         # radianza (C bande)
-    Parametri:
-      f : [C]                  # filtro spettrale unico (≥0), applicato PRIMA della proiezione
-    Interno:
-      S : [4, C]               # curve sensore interpolate su C bande (costruite dal CSV)
-
+      X : [B, C, H, W]
     Output:
       Y : [B, 4, H, W]
     """
@@ -329,71 +324,83 @@ class Filter(nn.Module):
         self._dtype = dtype
         self._device = torch.device(device)
 
-        # carica CSV UNA SOLA VOLTA (sorgente alta risoluzione)
         self._wl_sens_np, self._S_all_np = self._load_sens_csv(self.csv_path)   # (Ls,), (Ls,4)
 
-        # cache dipendente da C (n. bande del batch)
-        self.S = None         # torch [4, C] su device/dtype
-        self._S_C = None      # C corrente
-        self.weight_param = None  # f pre-softplus, [C]
+        # cache dipendente da C
+        self.register_buffer("S", None, persistent=False)  # <-- FIX: buffer che segue .to(...)
+        self._S_C = None
+        self.weight_param = None  # nn.Parameter [C]
 
     # ---------- forward ----------
     def forward(self, X: torch.Tensor) -> torch.Tensor:
-        # X: [B, C, H, W]
         assert X.dim() == 4, "X deve essere [B, C, H, W]"
         B, C, H, W = X.shape
+        device, dtype = X.device, X.dtype                 # <-- FIX: prendi device/dtype da X
 
-        self._ensure_S(C)
-        self._ensure_params(C)
+        self._ensure_S(C, device, dtype)                 # <-- FIX: pass device/dtype
+        self._ensure_params(C, device, dtype)            # <-- FIX: pass device/dtype
 
-        f = self._current_f()                            # [C]
+        f = self._current_f().to(device=device, dtype=dtype)     # [C]  <-- FIX
+        S = self.S.to(device=device, dtype=dtype)                 # [4,C] <-- FIX
+
         Xf = X * f.view(1, C, 1, 1)                      # [B,C,H,W]
-        # proiezione spettro→canali: somma su C usando S[4,C]
-        Y = torch.einsum("bchw,oc->bohw", Xf, self.S)    # [B,4,H,W]
+        Y = torch.einsum("bchw,oc->bohw", Xf, S)         # [B,4,H,W]
         return Y
 
     # ---------- utilities ----------
     def smoothness_penalty(self) -> torch.Tensor:
         assert self.weight_param is not None, "Chiama forward prima."
-        f = self._current_f()                             # [C]
+        f = self._current_f()
         return (f[1:] - f[:-1]).pow(2).mean()
 
     @torch.no_grad()
     def current_filter(self) -> torch.Tensor:
-        """Ritorna f(λ) ∈ [C] (dopo softplus)."""
         return self._current_f().detach().cpu()
 
     @torch.no_grad()
     def effective_sensor(self) -> torch.Tensor:
-        """Ritorna S_eff = S ∘ f  ∈ [4,C] (solo per analisi)."""
         assert self.S is not None and self.weight_param is not None
-        f = self._current_f().view(1, -1)                 # [1,C]
-        return (self.S * f).detach().cpu()                # [4,C]
+        f = self._current_f().view(1, -1)
+        return (self.S * f).detach().cpu()
 
     # ---------- internals ----------
-    def _ensure_params(self, C: int):
-        if self.weight_param is None or self.weight_param.numel() != C:
-            p = torch.zeros(C, dtype=self._dtype, device=self._device)
+    def _ensure_params(self, C: int, device: torch.device, dtype: torch.dtype):
+        if self.weight_param is None:
+            p = torch.zeros(C, device=device, dtype=dtype)
             with torch.no_grad():
                 p.copy_(_softplus_inv(torch.ones_like(p)))  # init f≈1
             self.weight_param = nn.Parameter(p)
+        else:
+            if self.weight_param.numel() != C:
+                raise ValueError(f"C è cambiato ({self.weight_param.numel()} -> {C}). "
+                                 "Mantieni C fisso o gestisci la ricreazione del parametro.")
+            # assicurati che segua il device/dtype correnti
+            if self.weight_param.device != device or self.weight_param.dtype != dtype:
+                self.weight_param.data = self.weight_param.data.to(device=device, dtype=dtype)
 
     def _current_f(self) -> torch.Tensor:
-        f = F.softplus(self.weight_param) + self.eps  # [C] ≥ 0
+        f = F.softplus(self.weight_param) + self.eps
         if self.sum_to_one:
             f = f / f.sum().clamp_min(self.eps)
         return f
 
-    def _ensure_S(self, C: int):
+    def _ensure_S(self, C: int, device: torch.device, dtype: torch.dtype):
         """Costruisce/aggiorna S ∈ [4,C] interpolando il CSV sulla griglia 400..1000 con C punti."""
         if (self.S is not None) and (self._S_C == C):
+            # già costruita per questo C: porta comunque a device/dtype correnti
+            self.S = self.S.to(device=device, dtype=dtype)
             return
-        wl_target = np.linspace(400.0, 1000.0, C, dtype=np.float64)      # griglia batch
+
+        wl_target = np.linspace(400.0, 1000.0, C, dtype=np.float64)
         S_interp = np.zeros((4, C), dtype=np.float64)
         for i in range(4):
             S_interp[i] = np.interp(wl_target, self._wl_sens_np, self._S_all_np[:, i],
                                     left=0.0, right=0.0)
-        self.S = torch.from_numpy(S_interp).to(self._dtype).to(self._device)  # [4,C]
+        S_t = torch.from_numpy(S_interp).to(device=device, dtype=dtype)   # <-- FIX
+        if self.sum_to_one:
+            S_t = S_t / (S_t.sum(dim=1, keepdim=True).clamp_min(self.eps))
+        # registra come buffer (sovrascrive quello precedente)
+        self.register_buffer("S", S_t, persistent=False)
         self._S_C = C
 
     @staticmethod
