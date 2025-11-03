@@ -87,12 +87,14 @@ def main():
         model.train()
         losses = AverageMeter()
         for i, (images, labels) in enumerate(train_loader):
+            labels = labels.cuda()
             images = images.cuda()
             images = Variable(images)
+            labels = Variable(labels)
             lr = optimizer.param_groups[0]['lr']
             optimizer.zero_grad()
             output = model(images)
-            data_loss = criterion_mrae(output, images)
+            data_loss = criterion_mrae(output, labels)
             smooth_reg = model.smoothness_penalty()
             lambda_smooth = 1e-3  # prova 1e-3 (range utile: 1e-4 ~ 5e-3)
             loss = data_loss + lambda_smooth * smooth_reg

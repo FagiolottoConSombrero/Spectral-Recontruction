@@ -68,23 +68,24 @@ class FlourFolderDataset(Dataset):
         return len(self.samples)
 
     def __getitem__(self, idx):
-        path, y = self.samples[idx]
-        cube_R, wl = self._load_h5(path)   # cube_R: (H,W,L), wl: (L,)
+        path, _ = self.samples[idx]
+
+        # carica riflettanza e lunghezze d'onda
+        cube_R, wl = self._load_h5(path)  # cube_R: (H,W,L), wl: (L,)
 
         # wavelengths di default se mancano
         if wl is None or wl.size == 0:
             wl = self.DEFAULT_WAVELENGTHS
 
         # costruisci illuminante E(λ)
-        E = self._build_illuminant(wl)     # shape (L,)
+        E = self._build_illuminant(wl)  # shape (L,)
 
         # radianza L(λ,x,y) = E(λ) * R(λ,x,y)
-        # broadcasting su (H,W,L)
-        Lcube = cube_R * E.reshape(1, 1, -1)
+        Lcube = cube_R * E.reshape(1, 1, -1)  # broadcasting su (H,W,L)
 
-        # porta a (L,H,W) per PyTorch (canali davanti)
-        Lcube_ch_first = np.moveaxis(Lcube, -1, 0)     # (L,H,W)
-        x = torch.from_numpy(Lcube_ch_first).to(self.dtype)
+        # porta a formato (C,H,W) per PyTorch
+        x = torch.from_numpy(np.moveaxis(Lcube, -1, 0)).to(self.dtype)  # radianza
+        y = torch.from_numpy(np.moveaxis(cube_R, -1, 0)).to(self.dtype)  # riflettanza
 
         return x, y
 
