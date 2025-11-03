@@ -21,8 +21,6 @@ parser.add_argument("--sensor_root", type=str, default='../dataset/')
 parser.add_argument("--patch_size", type=int, default=128, help="patch size")
 parser.add_argument("--stride", type=int, default=8, help="stride")
 parser.add_argument("--gpu_id", type=str, default='0', help='path log files')
-parser.add_argument("--rgb", type=bool, default=False)
-parser.add_argument("--ir", type=bool, default=False)
 opt = parser.parse_args()
 os.environ["CUDA_DEVICE_ORDER"] = 'PCI_BUS_ID'
 os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_id
@@ -30,7 +28,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_id
 # load dataset
 print("\nloading dataset ...")
 train_loader, val_loader = make_loaders(
-        opt.data_root, opt.sensor_root, opt.rgb, opt.ir, batch_size=opt.batch_size)
+        opt.data_root, opt.sensor_root, batch_size=opt.batch_size)
 
 # iterations
 per_epoch_iteration = 1000
