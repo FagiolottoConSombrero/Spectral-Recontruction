@@ -43,7 +43,7 @@ criterion_psnr = Loss_PSNR()
 
 # model
 pretrained_model_path = opt.pretrained_model_path
-model = JointDualFilterMST().cuda()
+model = JointDualFilterMST(opt.sensor_root).cuda()
 print('Parameters number is ', sum(param.numel() for param in model.parameters()))
 
 # output path

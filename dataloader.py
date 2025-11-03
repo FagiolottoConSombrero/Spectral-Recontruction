@@ -7,36 +7,33 @@ from torch.utils.data import Dataset
 class FlourFolderDataset(Dataset):
     """
     Legge HSI in .h5 organizzati per classi: root/class_name/*.h5
-    Proietta il cubo HSI su RGB o RGB-IR usando:
-      - curve spettrali dal CSV (wavelength, red, green, blue[, IR850])
-      - illuminante (alogeno Planck 2856 K di default, oppure None o array custom)
 
-    Output: (x, y) con x di shape (C, H, W), C=3 (RGB) o 4 (RGB-IR)
+    Restituisce la **radianza spettrale** L(λ,x,y) = E(λ) * R(λ,x,y),
+    dove R è il cubo letto dal file (assunto in riflettanza) ed E è l'illuminante.
+
+    Output: (x, y) con
+        x: torch.Tensor di shape (L, H, W)  [canali spettrali davanti]
+        y: indice di classe (int)
+        (+ path se return_path=True)
     """
 
-    # ---- Costanti utili ----
-    DEFAULT_WAVELENGTHS = np.arange(400.0, 1000.0 + 1e-9, 5.0)  # 400..1000 step 5 → 121 canali
+    # Wavelengths di default se assenti nel file: 400..1000 step 5 → 121 canali
+    DEFAULT_WAVELENGTHS = np.arange(400.0, 1000.0 + 1e-9, 5.0)
 
     def __init__(
         self,
         root: str,
-        spectral_sens_csv: str,
-        rgb: bool = True,
-        ir: bool = False,
-        dataset_keys="patch",
+        dataset_keys=("patch",),            # chiavi candidate nel file .h5 per il cubo
         exclude_prefixes=("._",),
         dtype=torch.float32,
-        hsi_channels_first: bool = False,     # True se HSI salvato come (L,H,W), altrimenti (H,W,L)
-        illuminant_mode: str = "planck",      # "planck" | "none" | "array"
-        illuminant_T: float = 2856.0,         # K, usato se illuminant_mode="planck"
-        illuminant_array: np.ndarray = None,  # shape (L,), usato se illuminant_mode="array"
-        return_path: bool = False,
+        hsi_channels_first: bool = False,   # True se HSI salvato come (L,H,W); altrimenti (H,W,L)
+        illuminant_mode: str = "planck",    # "planck" | "none" | "array"
+        illuminant_T: float = 2856.0,       # K, usato se illuminant_mode="planck"
+        illuminant_array: np.ndarray = None,# shape (L,) se illuminant_mode="array"
+        normalize_illuminant: bool = True,  # normalizza E(λ) (radianza relativa)
     ):
         super().__init__()
         self.root = root
-        self.spectral_sens_csv = spectral_sens_csv
-        self.rgb = rgb
-        self.ir = ir
         self.dataset_keys = dataset_keys
         self.exclude_prefixes = exclude_prefixes
         self.dtype = dtype
@@ -44,10 +41,7 @@ class FlourFolderDataset(Dataset):
         self.illuminant_mode = illuminant_mode
         self.illuminant_T = illuminant_T
         self.illuminant_array = illuminant_array
-        self.return_path = return_path
-
-        if not (self.rgb or self.ir):
-            raise ValueError("Imposta almeno uno tra rgb=True o ir=True.")
+        self.normalize_illuminant = normalize_illuminant
 
         # ---- indicizza classi e file ----
         self.classes = sorted([d for d in os.listdir(root)
@@ -69,42 +63,30 @@ class FlourFolderDataset(Dataset):
             raise RuntimeError(f"Nessun .h5 trovato sotto {root}")
         self.samples = samples
 
-        # ---- carica curve sensore dal CSV (una volta) ----
-        self._sens_wl, self._sens_mat, self._sens_labels = self._load_sens_csv(self.spectral_sens_csv)
-        # decide quali colonne usare
-        self._use_cols = self._decide_channels(self.rgb, self.ir, self._sens_labels)
-        self._out_channels = len(self._use_cols)
-
-        # cache della matrice di proiezione per un dato vettore di λ
-        self._cached_wl_key = None
-        self._proj_matrix = None  # shape (L, C)
-
     # ---------- API Dataset ----------
     def __len__(self):
         return len(self.samples)
 
     def __getitem__(self, idx):
         path, y = self.samples[idx]
-        cube, wl = self._load_h5(path)          # cube: (H,W,L), wl: (L,)
+        cube_R, wl = self._load_h5(path)   # cube_R: (H,W,L), wl: (L,)
 
-        # Se il file non contiene wl, usa [400..1000] step 5
+        # wavelengths di default se mancano
         if wl is None or wl.size == 0:
             wl = self.DEFAULT_WAVELENGTHS
 
-        # (ri)costruisci la matrice di proiezione se necessario
-        wl_key = (wl[0], wl[-1], wl.size)
-        if (self._proj_matrix is None) or (wl_key != self._cached_wl_key):
-            self._proj_matrix = self._build_projection(wl)   # (L, C)
-            self._cached_wl_key = wl_key
+        # costruisci illuminante E(λ)
+        E = self._build_illuminant(wl)     # shape (L,)
 
-        H, W, L = cube.shape
-        X = cube.reshape(-1, L) @ self._proj_matrix   # (H*W, C)
-        X = X.reshape(H, W, self._out_channels)
-        X = np.moveaxis(X, -1, 0)                     # (C, H, W)
-        x = torch.from_numpy(X).to(self.dtype)
-        cube = np.transpose(cube, (2, 0, 1))
-        y = torch.from_numpy(cube).to(self.dtype)
-        return (x, y, path) if self.return_path else (x, y)
+        # radianza L(λ,x,y) = E(λ) * R(λ,x,y)
+        # broadcasting su (H,W,L)
+        Lcube = cube_R * E.reshape(1, 1, -1)
+
+        # porta a (L,H,W) per PyTorch (canali davanti)
+        Lcube_ch_first = np.moveaxis(Lcube, -1, 0)     # (L,H,W)
+        x = torch.from_numpy(Lcube_ch_first).to(self.dtype)
+
+        return x, y
 
     # ---------- Helpers ----------
     @staticmethod
@@ -122,14 +104,19 @@ class FlourFolderDataset(Dataset):
     @staticmethod
     def _read_first_present(f, keys):
         for k in keys:
-            if k in f:
+            if k in f and isinstance(f[k], h5py.Dataset):
                 return f[k][()]
         return None
 
     def _load_h5(self, path):
+        """
+        Restituisce:
+          cube_R: riflettanza come (H,W,L)  (float64)
+          wl    : (L,) in nm, se presente; altrimenti None
+        """
         with h5py.File(path, "r") as f:
             arr = None
-            # 1) prova i dataset key in ordine (come facevi tu)
+            # 1) prova i dataset key in ordine (come prima)
             for k in self.dataset_keys:
                 if k in f and isinstance(f[k], h5py.Dataset):
                     arr = f[k][()]
@@ -143,122 +130,60 @@ class FlourFolderDataset(Dataset):
             if arr is None:
                 raise KeyError(f"Nessun dataset valido in {path}")
 
-            # wavelengths (se esistono, prendi quelle)
+            # wavelengths se esistono
             wl = None
             for k in ("wavelength", "wavelengths", "lambda", "bands"):
                 if k in f and isinstance(f[k], h5py.Dataset):
                     wl = np.asarray(f[k][()], dtype=np.float64).reshape(-1)
                     break
 
-        # --- coerzione forma, restando fedele al tuo comportamento ---
         if arr.ndim != 3:
             raise ValueError(f"atteso 3D, trovato {arr.shape} in {path}")
 
-        # Se è (H,W,C) portalo a (C,H,W) come fai tu...
-        if arr.shape[0] not in (121, 3, 4) and arr.shape[-1] in (121, 3, 4):
-            arr = np.moveaxis(arr, -1, 0)  # (C,H,W)
-
-        # ...ma la nostra pipeline di proiezione lavora in (H,W,L).
-        # Quindi, se C=121 (spettrale), riportiamolo a (H,W,L).
-        if arr.shape[0] == 121:  # (C=121,H,W) → (H,W,L=121)
-            cube = np.moveaxis(arr, 0, -1)
-        elif arr.shape[0] in (3, 4):
-            # se il file fosse già RGB/RGB-IR, trattalo come (C,H,W) e converti a (H,W,C)
-            cube = np.moveaxis(arr, 0, -1)
+        # Porta a (H,W,L)
+        if self.hsi_channels_first:
+            # file salvato come (L,H,W) → (H,W,L)
+            if arr.shape[0] != 0:
+                cube = np.moveaxis(arr, 0, -1)
+            else:
+                cube = arr
         else:
-            # caso raro: lascialo com'è, ma prova a portarlo a (H,W,L)
-            cube = np.moveaxis(arr, 0, -1)
+            # già (H,W,L) oppure (H,W,C)
+            cube = arr
 
-        # wl di default se mancano e se è davvero spettrale (121 canali)
-        if wl is None and cube.shape[-1] == 121:
-            wl = np.arange(400.0, 1000.0 + 1e-9, 5.0)
-        elif wl is None:
-            # non spettrale (es. già RGB), wl non serve davvero
-            wl = np.arange(cube.shape[-1], dtype=np.float64)
+        # wl di default se mancano e se è davvero spettrale (>=3 bande)
+        if wl is None and cube.shape[-1] >= 1:
+            # se riconosci 121 bande tipiche, usa 400..1000 step 5
+            if cube.shape[-1] == 121:
+                wl = np.arange(400.0, 1000.0 + 1e-9, 5.0, dtype=np.float64)
+            else:
+                # placeholder: indici 0..L-1 (non fisici). Meglio fornire wl nei file.
+                wl = np.arange(cube.shape[-1], dtype=np.float64)
 
         return cube.astype(np.float64), wl
 
-    @staticmethod
-    def _load_sens_csv(csv_path):
+    def _build_illuminant(self, wl_target: np.ndarray) -> np.ndarray:
         """
-        CSV con header: wavelength, red, green, blue[, IR850]
-        Ritorna: (wl_sens(Ls,), S_all(Ls,Nc), labels)
-        """
-        with open(csv_path, "r") as f:
-            header = f.readline().strip().split(",")
-        hmap = {name.strip().lower(): i for i, name in enumerate(header)}
-        if "wavelength" not in hmap:
-            raise ValueError("Nel CSV manca la colonna 'wavelength'.")
-
-        data = np.genfromtxt(csv_path, delimiter=",", skip_header=1)
-        wl_sens = data[:, hmap["wavelength"]].astype(np.float64)
-
-        labels = []
-        cols_idx = []
-        for name in ["red", "green", "blue", "ir850", "ir"]:
-            if name in hmap:
-                labels.append("IR850" if name in ("ir850", "ir") else name)  # normalizza label IR
-                cols_idx.append(hmap[name])
-        if not {"red", "green", "blue"}.issubset(set([l for l in labels if l != "IR850"])):
-            raise ValueError("Nel CSV devono esserci almeno le colonne red, green, blue.")
-        S_all = data[:, cols_idx].astype(np.float64)  # (Ls, Nc)
-        return wl_sens, S_all, labels
-
-    @staticmethod
-    def _decide_channels(rgb, ir, labels):
-        """Restituisce gli indici di colonna da usare (relativi a labels)."""
-        name_to_idx = {n: i for i, n in enumerate(labels)}
-        use = []
-        if rgb:
-            for n in ["red", "green", "blue"]:
-                if n not in name_to_idx:
-                    raise ValueError(f"Manca la colonna '{n}' nel CSV.")
-                use.append(name_to_idx[n])
-        if ir:
-            if "IR850" not in labels:
-                raise ValueError("Richiesto IR ma nel CSV non c'è 'IR850'.")
-            use.append(name_to_idx["IR850"])
-        return use
-
-    def _build_projection(self, wl_target):
-        """
-        Costruisce la matrice (L, C) con integrazione su λ:
-            proj(λ,c) = S_c(λ_interp) * E(λ) * Δλ
-        dove S_c sono le curve (interpolate sulle wl_target), E è l'illuminante, Δλ pesi trapezoidali.
+        Costruisce E(λ) su wl_target (nm).
         """
         wl_target = np.asarray(wl_target, dtype=np.float64).reshape(-1)
         L = wl_target.size
 
-        # Interpola curve sensore su wl_target
-        S_interp_all = []
-        for c in range(self._sens_mat.shape[1]):
-            S_interp_all.append(np.interp(wl_target, self._sens_wl, self._sens_mat[:, c], left=0.0, right=0.0))
-        S_interp_all = np.stack(S_interp_all, axis=1)  # (L, Nc_tot)
-        S_interp = S_interp_all[:, self._use_cols]     # (L, C)
-
-        # Illuminante
         if self.illuminant_mode == "none":
             E = np.ones(L, dtype=np.float64)
         elif self.illuminant_mode == "planck":
-            E = self.planck_spd(wl_target, T=self.illuminant_T, normalize=True)
+            E = self.planck_spd(wl_target, T=self.illuminant_T,
+                                normalize=self.normalize_illuminant)
         elif self.illuminant_mode == "array":
             if self.illuminant_array is None:
                 raise ValueError("illuminant_mode='array' ma illuminant_array=None.")
             E = np.asarray(self.illuminant_array, dtype=np.float64).reshape(-1)
             if E.size != L:
                 raise ValueError(f"illuminant_array ha lunghezza {E.size}, atteso {L}.")
+            if self.normalize_illuminant:
+                E = E / (E.max() + 1e-12)
         else:
             raise ValueError("illuminant_mode deve essere 'planck' | 'none' | 'array'.")
 
-        # Pesi Δλ (trapezi, non-uniforme OK)
-        dl = np.zeros(L, dtype=np.float64)
-        if L > 1:
-            d = np.diff(wl_target)
-            dl[1:-1] = 0.5 * (d[:-1] + d[1:])
-            dl[0] = d[0] * 0.5
-            dl[-1] = d[-1] * 0.5
-        else:
-            dl[:] = 1.0
+        return E
 
-        proj = (E[:, None] * S_interp) * dl[:, None]   # (L, C)
-        return proj
