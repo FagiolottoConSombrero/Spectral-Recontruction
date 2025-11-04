@@ -464,3 +464,57 @@ class JointDualFilterMST(nn.Module):
         xb = self.filterB(X)                 # [B,4,H,W]
         x8 = torch.cat([xa, xb], dim=1)     # [B,8,H,W]
         return self.mst(x8)                 # [B,121,H,W] (o il tuo output)
+
+
+class DualFilterVector(nn.Module):
+    """
+    Usa due Filter esistenti ma con input vettoriali (B, C) invece di (B, C, H, W).
+    Output: y ∈ (B, 8) con ordine interleaved: [y1R,y2R,y1G,y2G,y1B,y2B,y1IR,y2IR].
+    """
+    def __init__(self, spectral_sens_csv: str, device="cpu", dtype=torch.float32):
+        super().__init__()
+        self.filterA = Filter(spectral_sens_csv, device=device, dtype=dtype)
+        self.filterB = Filter(spectral_sens_csv, device=device, dtype=dtype)
+
+    def forward(self, Xvec):  # Xvec: (B, C)
+        B, C = Xvec.shape
+        X4d = Xvec.view(B, C, 1, 1)     # (B,C,H=1,W=1)
+
+        xa = self.filterA(X4d).view(B, 4)   # (B,4) = [R,G,B,IR] per filtro 1
+        xb = self.filterB(X4d).view(B, 4)   # (B,4) = [R,G,B,IR] per filtro 2
+
+        # Interleaving per canale: [y1R,y2R, y1G,y2G, y1B,y2B, y1IR,y2IR]
+        y = torch.stack([xa[:,0], xb[:,0], xa[:,1], xb[:,1],
+                         xa[:,2], xb[:,2], xa[:,3], xb[:,3]], dim=1)  # (B,8)
+        return y
+
+
+class ReconMLP(nn.Module):
+    def __init__(self, in_dim=8, out_len=121, hidden=(128,256), nonneg=True):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, hidden[0]), nn.ReLU(inplace=True),
+            nn.Linear(hidden[0], hidden[1]), nn.ReLU(inplace=True),
+            nn.Linear(hidden[1], out_len)
+        )
+        self.nonneg = nonneg
+        self.softplus = nn.Softplus()
+
+    def forward(self, y):
+        s = self.net(y)
+        if self.nonneg:
+            s = self.softplus(s)
+        return s.clamp(0.0, 1.0)
+
+
+class PixelReconModel(nn.Module):
+    def __init__(self, spectral_sens_csv: str, out_len=121, device="cuda", dtype=torch.float32):
+        super().__init__()
+        self.meas = DualFilterVector(spectral_sens_csv, device=device, dtype=dtype)
+        self.dec = ReconMLP(in_dim=8, out_len=out_len)
+
+    def forward(self, s_true):           # s_true: (B, L=121)  (radiance o riflettanza)
+        y = self.meas(s_true)            # (B,8)
+        s_pred = self.dec(y)             # (B,121)
+        return s_pred, y
+

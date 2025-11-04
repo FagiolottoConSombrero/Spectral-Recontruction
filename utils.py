@@ -8,7 +8,7 @@ import os
 import math, random
 from pathlib import Path
 from torch.utils.data import DataLoader, random_split
-from dataloader import FlourFolderDataset
+from signal_dataloader import SignalFlourFolderDataset
 
 
 class AverageMeter(object):
@@ -122,15 +122,18 @@ def record_loss(loss_csv, epoch, iteration, epoch_time, lr, train_loss, test_los
     loss_csv.close
 
 
-def make_loaders(root, batch_size=8, num_workers=4, val_ratio=0.2, pin_memory=True):
+def make_loaders(root, sensor_root, rgb, ir, patch_mean, batch_size=8, num_workers=4, val_ratio=0.2, pin_memory=True):
     """
     Se esistono /train e /val sotto root li usa; altrimenti fa split random.
     """
     root = Path(root)
-    full = FlourFolderDataset(root=root,
+    full = SignalFlourFolderDataset(root=root,
+                              spectral_sens_csv=sensor_root,
+                              rgb=rgb, ir=ir,
                               hsi_channels_first=False,  # True se i tuoi HSI sono (L,H,W)
                               illuminant_mode="planck",  # alogena
-                              illuminant_T=2856.0)
+                              illuminant_T=2856.0,
+                              patch_mean=patch_mean)
     n = len(full)
     n_val = int(math.floor(n * val_ratio))
     n_train = n - n_val
@@ -147,3 +150,20 @@ def make_loaders(root, batch_size=8, num_workers=4, val_ratio=0.2, pin_memory=Tr
         num_workers=num_workers, pin_memory=pin_memory, persistent_workers=pw
     )
     return train_loader, val_loader
+
+
+def spectral_angle_loss(yhat: torch.Tensor, y: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    # SAM in radianti (per logging lo convertiamo in gradi)
+    num = (yhat * y).sum(dim=1)
+    den = yhat.norm(dim=1) * y.norm(dim=1) + eps
+    cos = (num / den).clamp(-1 + 1e-6, 1 - 1e-6)
+    ang = torch.acos(cos)
+    return ang.mean()
+
+
+def spectral_smoothness(y: torch.Tensor) -> torch.Tensor:
+    # y: (B,L) oppure (L,) -> penalizza variazioni lungo λ
+    if y.dim() == 1:
+        y = y.unsqueeze(0)
+    diff = y[:, 1:] - y[:, :-1]
+    return (diff**2).mean()
