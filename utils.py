@@ -122,7 +122,7 @@ def record_loss(loss_csv, epoch, iteration, epoch_time, lr, train_loss, test_los
     loss_csv.close
 
 
-def make_loaders(root, sensor_root, rgb, ir, patch_mean, batch_size=8, num_workers=4, val_ratio=0.2, pin_memory=True):
+def make_loaders(root, batch_size=8, num_workers=4, val_ratio=0.2, pin_memory=True):
     """
     Se esistono /train e /val sotto root li usa; altrimenti fa split random.
     """
