@@ -156,7 +156,6 @@ if __name__ == "__main__":
         sensor_root=args.sensor_root,
         rgb=args.rgb,
         ir=args.ir,
-        task=args.task,
         save_dir=args.save_dir,
         batch_size=args.batch_size,
         num_workers=args.num_workers,
