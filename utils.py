@@ -8,7 +8,7 @@ import os
 import math, random
 from pathlib import Path
 from torch.utils.data import DataLoader, random_split
-from signal_dataloader import SignalFlourFolderDataset
+from dataloader import FlourFolderDataset
 
 
 class AverageMeter(object):
@@ -127,7 +127,7 @@ def make_loaders(root, sensor_root, rgb, ir, patch_mean, batch_size=8, num_worke
     Se esistono /train e /val sotto root li usa; altrimenti fa split random.
     """
     root = Path(root)
-    full = SignalFlourFolderDataset(root=root,
+    full = FlourFolderDataset(root=root,
                               spectral_sens_csv=sensor_root,
                               rgb=rgb, ir=ir,
                               hsi_channels_first=False,  # True se i tuoi HSI sono (L,H,W)
