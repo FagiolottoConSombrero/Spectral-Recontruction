@@ -128,12 +128,9 @@ def make_loaders(root, sensor_root, rgb, ir, patch_mean, batch_size=8, num_worke
     """
     root = Path(root)
     full = FlourFolderDataset(root=root,
-                              spectral_sens_csv=sensor_root,
-                              rgb=rgb, ir=ir,
                               hsi_channels_first=False,  # True se i tuoi HSI sono (L,H,W)
                               illuminant_mode="planck",  # alogena
-                              illuminant_T=2856.0,
-                              patch_mean=patch_mean)
+                              illuminant_T=2856.0)
     n = len(full)
     n_val = int(math.floor(n * val_ratio))
     n_train = n - n_val
