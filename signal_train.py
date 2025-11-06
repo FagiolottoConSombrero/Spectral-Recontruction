@@ -89,10 +89,7 @@ class LitReconSpectral(pl.LightningModule):
 # ---------------- main ----------------
 def main(
         data_root: str,
-        sensor_root: str,
-        rgb: bool,
-        ir: bool,
-        task: str = "recon",                 # NEW: "recon" o "classif"
+        sensor_root: str,                # NEW: "recon" o "classif"
         save_dir: str = "runs/lightning",
         batch_size: int = 8,
         num_workers: int = 4,
