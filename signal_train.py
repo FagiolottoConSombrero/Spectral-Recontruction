@@ -12,18 +12,18 @@ def set_seed(seed=42):
 
 # ==== NEW: LightningModule per RICOSTRUZIONE ====
 class LitReconSpectral(pl.LightningModule):
-    """
-    Training end-to-end per ricostruzione spettrale:
-    - measurement: due filtri learnable + CSV sensore -> y ∈ (B,8)
-    - decoder: MLP 8 -> 121
-    Target: s_true ∈ (B,121)
-    """
     def __init__(self, spectral_sens_csv: str, lr: float = 1e-3, out_len: int = 121):
         super().__init__()
         self.save_hyperparameters()
-        self.meas = DualFilterVector(spectral_sens_csv, device="cuda", dtype=torch.float32)
+        # NON fissare "cuda" qui: lascia che Lightning gestisca
+        self.meas = DualFilterVector(spectral_sens_csv, device="cpu", dtype=torch.float32)
         self.dec = ReconMLP(in_dim=8, out_len=out_len)
         self.lr = lr
+
+    def on_fit_start(self):
+        # assicura coerenza di device/dtype con il trainer
+        self.meas.to(self.device, dtype=self.dtype if hasattr(self, "dtype") else None)
+        self.dec.to(self.device)
 
     def forward(self, s_true):
         y = self.meas(s_true)     # (B,8)

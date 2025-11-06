@@ -488,6 +488,10 @@ class DualFilterVector(nn.Module):
                          xa[:,2], xb[:,2], xa[:,3], xb[:,3]], dim=1)  # (B,8)
         return y
 
+    def filters_smoothness(self) -> torch.Tensor:
+        # versione che contribuisce al gradiente
+        return self.filterA.smoothness_penalty() + self.filterB.smoothness_penalty()
+
 
 class ReconMLP(nn.Module):
     def __init__(self, in_dim=8, out_len=121, hidden=(128,256), nonneg=True):
