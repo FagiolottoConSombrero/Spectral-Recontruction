@@ -40,7 +40,7 @@ class LitReconSpectral(pl.LightningModule):
 
     def _loss(self, s_pred, s_true):
         loss = F.mse_loss(s_pred, s_true)
-        loss += 0.1  * spectral_angle_loss(s_pred, s_true)
+        loss += 0.1 * spectral_angle_loss(s_pred, s_true)
         loss += 0.01 * spectral_smoothness(s_pred)
         loss += 0.01 * self.meas.filters_smoothness()
         return loss
@@ -99,8 +99,6 @@ def main(
         lr: float = 1e-3,
         epochs: int = 50,
         seed: int = 42,
-        se: bool = True,
-        patch: bool = True,
         devices="auto"):
     set_seed(seed)
 
@@ -121,7 +119,7 @@ def main(
         max_epochs=epochs,
         accelerator="auto",
         devices=devices,
-        precision="32-true",
+        precision="32",
         callbacks=[ckpt, early, lrmon],
         log_every_n_steps=10,
     )
@@ -139,11 +137,7 @@ if __name__ == "__main__":
     ap.add_argument("--num_workers", type=int, default=4)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--epochs", type=int, default=50)
-    ap.add_argument("--se", type=bool, default=True)
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--rgb", type=bool, default=False)
-    ap.add_argument("--ir", type=bool, default=False)
-    ap.add_argument("--patch_mean", type=bool, default=True)
     args = ap.parse_args()
 
     main(
@@ -156,7 +150,5 @@ if __name__ == "__main__":
         num_workers=args.num_workers,
         lr=args.lr,
         epochs=args.epochs,
-        se=args.se,
-        seed=args.seed,
-        patch=args.patch_mean,
+        seed=args.seed
     )
