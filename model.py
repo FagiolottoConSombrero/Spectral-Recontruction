@@ -555,3 +555,73 @@ class SpectralMLP(nn.Module):
         y = y.view(B, H, W, 121).permute(0, 3, 1, 2).contiguous()  # (B,121,16,16)
         return y
 
+
+class ResMLP8to121(nn.Module):
+    def __init__(self, width=256, depth=4, nonneg=True, norm_in=True):
+        super().__init__()
+        self.nonneg = nonneg
+        self.softplus = nn.Softplus(beta=1.0, threshold=20.0)
+
+        self.norm_in = norm_in
+        if norm_in:
+            self.mu = nn.Parameter(torch.zeros(8))
+            self.sig = nn.Parameter(torch.ones(8))
+
+        self.inp = nn.Linear(8, width)
+        self.blocks = nn.ModuleList([
+            nn.Sequential(
+                nn.Linear(width, width),
+                nn.GELU(),
+                nn.Linear(width, width),
+            ) for _ in range(depth)
+        ])
+        self.out = nn.Linear(width, 121)
+
+        # init xavier
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None: nn.init.zeros_(m.bias)
+
+    def forward(self, x):          # x: (B,8)
+        if self.norm_in:
+            x = (x - self.mu) / (self.sig.abs() + 1e-6)
+        h = F.gelu(self.inp(x))
+        for blk in self.blocks:
+            h = h + blk(h)         # residual
+            h = F.gelu(h)
+        y = self.out(h)            # (B,121)
+        return self.softplus(y) if self.nonneg else y
+
+
+class TinySpecFormer(nn.Module):
+    def __init__(self, d_model=192, nhead=6, num_layers=2, nonneg=True):
+        super().__init__()
+        self.nonneg = nonneg
+        self.softplus = nn.Softplus(beta=1.0, threshold=20.0)
+
+        self.obs_proj = nn.Linear(8, d_model)                   # 8 -> d
+        self.q_emb = nn.Parameter(torch.randn(121, d_model))    # 121 query (una per λ)
+
+        enc_layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=nhead, dim_feedforward=4*d_model,
+            batch_first=True, activation="gelu"
+        )
+        self.enc = nn.TransformerEncoder(enc_layer, num_layers=1)
+
+        dec_layer = nn.TransformerDecoderLayer(
+            d_model=d_model, nhead=nhead, dim_feedforward=4*d_model,
+            batch_first=True, activation="gelu"
+        )
+        self.dec = nn.TransformerDecoder(dec_layer, num_layers=num_layers)
+
+        self.head = nn.Linear(d_model, 1)
+
+    def forward(self, x):                  # x: (B,8)
+        mem = self.obs_proj(x).unsqueeze(1)   # (B,1,d)
+        mem = self.enc(mem)                   # (B,1,d)
+        Q = self.q_emb.unsqueeze(0).expand(x.size(0), -1, -1)  # (B,121,d)
+        H = self.dec(Q, mem)                  # (B,121,d)
+        y = self.head(H).squeeze(-1)          # (B,121)
+        return self.softplus(y) if self.nonneg else y
+

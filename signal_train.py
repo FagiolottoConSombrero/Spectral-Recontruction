@@ -12,12 +12,17 @@ def set_seed(seed=42):
 
 # ==== NEW: LightningModule per RICOSTRUZIONE ====
 class LitReconSpectral(pl.LightningModule):
-    def __init__(self, spectral_sens_csv: str, lr: float = 1e-3, out_len: int = 121):
+    def __init__(self, spectral_sens_csv: str, recon_type: int,  lr: float = 1e-3, out_len: int = 121):
         super().__init__()
         self.save_hyperparameters()
         # NON fissare "cuda" qui: lascia che Lightning gestisca
         self.meas = DualFilterVector(spectral_sens_csv, device="cpu", dtype=torch.float32)
-        self.dec = ReconMLP(in_dim=8, out_len=out_len)
+        if recon_type == 1:
+            self.dec = ReconMLP(in_dim=8, out_len=out_len)
+        elif recon_type == 2:
+            self.dec = ResMLP8to121()
+        elif recon_type == 3:
+            self.dec = TinySpecFormer()
         self.lr = lr
 
     def on_fit_start(self):
@@ -96,6 +101,7 @@ def main(
         lr: float = 1e-3,
         epochs: int = 50,
         seed: int = 42,
+        recon_type: int = 1,
         devices="auto"):
     set_seed(seed)
 
@@ -103,7 +109,7 @@ def main(
     # passiamo patch_mean=True così x -> media su H,W in __getitem__ (se già supportato).
     train_loader, val_loader = make_loaders(data_root, batch_size=batch_size, num_workers=num_workers, val_ratio=0.2)
 
-    model = LitReconSpectral(spectral_sens_csv=sensor_root, lr=lr, out_len=121)
+    model = LitReconSpectral(spectral_sens_csv=sensor_root, lr=lr, recon_type=recon_type, out_len=121)
     run_dir = f"{save_dir}/recon"
     monitor_key = "val_loss"
 
@@ -135,6 +141,7 @@ if __name__ == "__main__":
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--epochs", type=int, default=50)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--recon_type", type=int, default=1)
     args = ap.parse_args()
 
     main(
@@ -145,5 +152,6 @@ if __name__ == "__main__":
         num_workers=args.num_workers,
         lr=args.lr,
         epochs=args.epochs,
-        seed=args.seed
+        seed=args.seed,
+        recon_type=args.recon_type
     )
