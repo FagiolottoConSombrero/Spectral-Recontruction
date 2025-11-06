@@ -1,8 +1,4 @@
-import math, random
-from pathlib import Path
-import torch
 from torch import nn, optim
-from torch.utils.data import DataLoader, random_split
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint, LearningRateMonitor
 from utils import *
@@ -12,6 +8,7 @@ def set_seed(seed=42):
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
 
 # ==== NEW: LightningModule per RICOSTRUZIONE ====
 class LitReconSpectral(pl.LightningModule):
@@ -109,9 +106,7 @@ def main(
 
     # Per ricostruzione: vogliamo (B,121). Se il dataset emette patch (B,C,H,W),
     # passiamo patch_mean=True così x -> media su H,W in __getitem__ (se già supportato).
-    train_loader, val_loader = make_loaders(
-        data_root, sensor_root, rgb, ir, patch_mean=patch,
-        batch_size=batch_size, num_workers=num_workers, val_ratio=0.2)
+    train_loader, val_loader = make_loaders(batch_size=batch_size, num_workers=num_workers, val_ratio=0.2)
 
     model = LitReconSpectral(spectral_sens_csv=sensor_root, lr=lr, out_len=121)
     run_dir = f"{save_dir}/recon"
