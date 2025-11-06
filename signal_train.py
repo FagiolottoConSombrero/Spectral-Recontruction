@@ -106,7 +106,7 @@ def main(
 
     # Per ricostruzione: vogliamo (B,121). Se il dataset emette patch (B,C,H,W),
     # passiamo patch_mean=True così x -> media su H,W in __getitem__ (se già supportato).
-    train_loader, val_loader = make_loaders(batch_size=batch_size, num_workers=num_workers, val_ratio=0.2)
+    train_loader, val_loader = make_loaders(data_root, batch_size=batch_size, num_workers=num_workers, val_ratio=0.2)
 
     model = LitReconSpectral(spectral_sens_csv=sensor_root, lr=lr, out_len=121)
     run_dir = f"{save_dir}/recon"
