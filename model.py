@@ -508,8 +508,8 @@ class ReconMLP(nn.Module):
             self.sig = nn.Parameter(torch.ones(in_dim))    # learnable
 
         self.net = nn.Sequential(
-            nn.Linear(in_dim, hidden[0]), nn.GELU(),
-            nn.Linear(hidden[0], hidden[1]), nn.GELU(),
+            nn.Linear(in_dim, hidden[0]), nn.ReLU(inplace=True),
+            nn.Linear(hidden[0], hidden[1]), nn.ReLU(inplace=True),
             nn.Linear(hidden[1], out_len)
         )
         self.nonneg = nonneg
@@ -585,7 +585,7 @@ class ResMLP8to121(nn.Module):
         self.blocks = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(width, width),
-                nn.GELU(),
+                nn.ReLU(inplace=True),
                 nn.Linear(width, width),
             ) for _ in range(depth)
         ])
@@ -600,10 +600,10 @@ class ResMLP8to121(nn.Module):
     def forward(self, x):          # x: (B,8)
         if self.norm_in:
             x = (x - self.mu) / (self.sig.abs() + 1e-6)
-        h = F.gelu(self.inp(x))
+        h = F.relu(self.inp(x), inplace=True)
         for blk in self.blocks:
             h = h + blk(h)         # residual
-            h = F.gelu(h)
+            h = F.relu(h, inplace=True)
         y = self.out(h)            # (B,121)
         return self.softplus(y) if self.nonneg else y
 
@@ -619,13 +619,13 @@ class TinySpecFormer(nn.Module):
 
         enc_layer = nn.TransformerEncoderLayer(
             d_model=d_model, nhead=nhead, dim_feedforward=4*d_model,
-            batch_first=True, activation="gelu"
+            batch_first=True, activation="relu"
         )
         self.enc = nn.TransformerEncoder(enc_layer, num_layers=1)
 
         dec_layer = nn.TransformerDecoderLayer(
             d_model=d_model, nhead=nhead, dim_feedforward=4*d_model,
-            batch_first=True, activation="gelu"
+            batch_first=True, activation="relu"
         )
         self.dec = nn.TransformerDecoder(dec_layer, num_layers=num_layers)
 
