@@ -350,8 +350,14 @@ class Filter(nn.Module):
     # ---------- utilities ----------
     def smoothness_penalty(self) -> torch.Tensor:
         assert self.weight_param is not None, "Chiama forward prima."
-        f = self._current_f()
-        return (f[1:] - f[:-1]).pow(2).mean()
+        f = F.softplus(self.weight_param) + self.eps
+        # seconda differenza (Laplaciano 1D)
+        if f.numel() >= 3:
+            d2 = f[2:] - 2 * f[1:-1] + f[:-2]
+            return (d2 ** 2).mean()
+        else:
+            d1 = f[1:] - f[:-1]
+            return (d1 ** 2).mean()
 
     @torch.no_grad()
     def current_filter(self) -> torch.Tensor:
@@ -494,21 +500,29 @@ class DualFilterVector(nn.Module):
 
 
 class ReconMLP(nn.Module):
-    def __init__(self, in_dim=8, out_len=121, hidden=(128,256), nonneg=True):
+    def __init__(self, in_dim=8, out_len=121, hidden=(256, 384), nonneg=True, norm_in=True):
         super().__init__()
+        self.norm_in = norm_in
+        if norm_in:
+            self.mu = nn.Parameter(torch.zeros(in_dim))   # learnable
+            self.sig = nn.Parameter(torch.ones(in_dim))    # learnable
+
         self.net = nn.Sequential(
-            nn.Linear(in_dim, hidden[0]), nn.ReLU(inplace=True),
-            nn.Linear(hidden[0], hidden[1]), nn.ReLU(inplace=True),
+            nn.Linear(in_dim, hidden[0]), nn.GELU(),
+            nn.Linear(hidden[0], hidden[1]), nn.GELU(),
             nn.Linear(hidden[1], out_len)
         )
         self.nonneg = nonneg
-        self.softplus = nn.Softplus()
+        self.softplus = nn.Softplus(beta=1.0, threshold=20.0)
 
     def forward(self, y):
+        if self.norm_in:
+            y = (y - self.mu) / (self.sig.abs() + 1e-6)
         s = self.net(y)
         if self.nonneg:
             s = self.softplus(s)
         return s.clamp(0.0, 1.0)
+
 
 
 class PixelReconModel(nn.Module):
