@@ -447,7 +447,7 @@ class JointDualFilterMST(nn.Module):
         super().__init__()
         self.filterA = Filter(spectral_sens_csv, device=device, dtype=dtype)
         self.filterB = Filter(spectral_sens_csv, device=device, dtype=dtype)
-        self.mst = SpectralMLP()  # la tua rete già definita
+        self.mst = MST_Plus_Plus()  # la tua rete già definita
 
     def smoothness_penalty(self):
         return self.filterA.smoothness_penalty() + self.filterB.smoothness_penalty()
