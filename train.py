@@ -26,7 +26,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_id
 # load dataset
 print("\nloading dataset ...")
 train_loader, val_loader = make_loaders(
-        opt.data_root, opt.sensor_root, batch_size=opt.batch_size)
+        opt.data_root, batch_size=opt.batch_size)
 
 # iterations
 per_epoch_iteration = 1000
@@ -39,8 +39,7 @@ criterion_psnr = Loss_PSNR()
 
 # model
 pretrained_model_path = opt.pretrained_model_path
-#model = JointDualFilterMST(opt.sensor_root).cuda()
-model = MST_Plus_Plus().cuda()
+model = JointDualFilterMST(opt.sensor_root).cuda()
 print('Parameters number is ', sum(param.numel() for param in model.parameters()))
 
 # output path

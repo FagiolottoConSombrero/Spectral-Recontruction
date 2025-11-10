@@ -447,7 +447,7 @@ class JointDualFilterMST(nn.Module):
         super().__init__()
         self.filterA = Filter(spectral_sens_csv, device=device, dtype=dtype)
         self.filterB = Filter(spectral_sens_csv, device=device, dtype=dtype)
-        self.mst = SpectralMLP()  # la tua rete già definita
+        self.mst = MST_Plus_Plus()  # la tua rete già definita
 
     def smoothness_penalty(self):
         return self.filterA.smoothness_penalty() + self.filterB.smoothness_penalty()
@@ -548,7 +548,7 @@ class SpectralMLP(nn.Module):
         act = nn.GELU() if activation == "gelu" else nn.ReLU(inplace=True)
 
         layers = []
-        in_dim = 4
+        in_dim = 8
         for _ in range(max(0, num_layers - 1)):
             layers += [nn.Linear(in_dim, hidden_dim), act]
             in_dim = hidden_dim
@@ -562,9 +562,9 @@ class SpectralMLP(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (B, 8, 16, 16)
         B, C, H, W = x.shape
-        assert (C, H, W) == (4, 16, 16), f"atteso (8,16,16), ricevuto {(C,H,W)}"
+        assert (C, H, W) == (8, 16, 16), f"atteso (8,16,16), ricevuto {(C,H,W)}"
         x = x.permute(0, 2, 3, 1).contiguous()   # (B,16,16,8)
-        x = x.view(B * H * W, 4)                 # (BHW, 8)
+        x = x.view(B * H * W, 8)                 # (BHW, 8)
         y = self.mlp(x)                          # (BHW, 121)
         y = y.view(B, H, W, 121).permute(0, 3, 1, 2).contiguous()  # (B,121,16,16)
         return y
