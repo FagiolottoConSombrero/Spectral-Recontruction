@@ -120,7 +120,7 @@ class FlourFolderDataset(Dataset):
         X = X.reshape(H, W, self._out_channels)
         X = np.moveaxis(X, -1, 0)                     # (C, H, W)
         x = torch.from_numpy(X).to(self.dtype)
-        return (x, x, path) if self.return_path else (x, x)
+        return (x, cube, path) if self.return_path else (x, cube)
 
     # ---------- Helpers ----------
     @staticmethod
