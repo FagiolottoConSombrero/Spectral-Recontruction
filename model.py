@@ -276,7 +276,7 @@ class MST(nn.Module):
 
 
 class MST_Plus_Plus(nn.Module):
-    def __init__(self, in_channels=4, out_channels=121, n_feat=121, stage=3):
+    def __init__(self, in_channels=8, out_channels=121, n_feat=121, stage=3):
         super(MST_Plus_Plus, self).__init__()
         self.stage = stage
         self.conv_in = nn.Conv2d(in_channels, n_feat, kernel_size=3, padding=(3 - 1) // 2,bias=False)
@@ -447,7 +447,7 @@ class JointDualFilterMST(nn.Module):
         super().__init__()
         self.filterA = Filter(spectral_sens_csv, device=device, dtype=dtype)
         self.filterB = Filter(spectral_sens_csv, device=device, dtype=dtype)
-        self.mst = MST_Plus_Plus()  # la tua rete già definita
+        self.mst = SpectralMLP()  # la tua rete già definita
 
     def smoothness_penalty(self):
         return self.filterA.smoothness_penalty() + self.filterB.smoothness_penalty()
