@@ -26,7 +26,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu_id
 # load dataset
 print("\nloading dataset ...")
 train_loader, val_loader = make_loaders(
-        opt.data_root, batch_size=opt.batch_size)
+        opt.data_root, opt.sensor_root, batch_size=opt.batch_size)
 
 # iterations
 per_epoch_iteration = 1000
