@@ -94,9 +94,9 @@ def main():
             optimizer.zero_grad()
             output = model(images)
             data_loss = criterion_mrae(output, labels)
-            smooth_reg = model.smoothness_penalty()
+            #smooth_reg = model.smoothness_penalty()
             lambda_smooth = 1e-3  # prova 1e-3 (range utile: 1e-4 ~ 5e-3)
-            loss = data_loss + lambda_smooth * smooth_reg
+            loss = data_loss + lambda_smooth #* smooth_reg
             loss.backward()
             optimizer.step()
             scheduler.step()
