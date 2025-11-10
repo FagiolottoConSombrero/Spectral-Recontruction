@@ -564,7 +564,7 @@ class SpectralMLP(nn.Module):
         B, C, H, W = x.shape
         assert (C, H, W) == (4, 16, 16), f"atteso (8,16,16), ricevuto {(C,H,W)}"
         x = x.permute(0, 2, 3, 1).contiguous()   # (B,16,16,8)
-        x = x.view(B * H * W, 8)                 # (BHW, 8)
+        x = x.view(B * H * W, 4)                 # (BHW, 8)
         y = self.mlp(x)                          # (BHW, 121)
         y = y.view(B, H, W, 121).permute(0, 3, 1, 2).contiguous()  # (B,121,16,16)
         return y
