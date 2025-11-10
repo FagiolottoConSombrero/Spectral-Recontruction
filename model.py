@@ -548,7 +548,7 @@ class SpectralMLP(nn.Module):
         act = nn.GELU() if activation == "gelu" else nn.ReLU(inplace=True)
 
         layers = []
-        in_dim = 8
+        in_dim = 4
         for _ in range(max(0, num_layers - 1)):
             layers += [nn.Linear(in_dim, hidden_dim), act]
             in_dim = hidden_dim
@@ -562,7 +562,7 @@ class SpectralMLP(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (B, 8, 16, 16)
         B, C, H, W = x.shape
-        assert (C, H, W) == (8, 16, 16), f"atteso (8,16,16), ricevuto {(C,H,W)}"
+        assert (C, H, W) == (4, 16, 16), f"atteso (8,16,16), ricevuto {(C,H,W)}"
         x = x.permute(0, 2, 3, 1).contiguous()   # (B,16,16,8)
         x = x.view(B * H * W, 8)                 # (BHW, 8)
         y = self.mlp(x)                          # (BHW, 121)

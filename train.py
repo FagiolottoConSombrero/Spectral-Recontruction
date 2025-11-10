@@ -1,11 +1,9 @@
-import torch
-import torch.nn as nn
 import argparse
 import torch.optim as optim
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 import os
-from model import JointDualFilterMST
+from model import *
 from utils import AverageMeter, initialize_logger, save_checkpoint, time2file_name, \
                   Loss_MRAE, Loss_RMSE, Loss_PSNR, make_loaders
 import datetime
@@ -41,7 +39,8 @@ criterion_psnr = Loss_PSNR()
 
 # model
 pretrained_model_path = opt.pretrained_model_path
-model = JointDualFilterMST(opt.sensor_root).cuda()
+#model = JointDualFilterMST(opt.sensor_root).cuda()
+model = SpectralMLP().cuda()
 print('Parameters number is ', sum(param.numel() for param in model.parameters()))
 
 # output path
